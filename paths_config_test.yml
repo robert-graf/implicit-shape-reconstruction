@@ -1,0 +1,17 @@
+# Path to directory where all the models are
+model_basedir: ./my_models
+
+# Path to base data directory
+data_basedir: /media/data/robert/datasets/verse19/
+# Directory name with labels within base data directory
+labels_dirname: /media/data/robert/datasets/verse19/test_seg/vert/
+
+# Path to directory with casename files
+casefiles_basedir: ./casename_files/verse19/
+
+# Path to base output directory for reconstructions
+output_basedir: /media/data/robert/datasets/verse19/test_seg/reconstruction
+
+#python impl_recon/train.py -p paths_config.yml -c config_files/training/train_config_verse_thin_rn.yml
+#python impl_recon/eval.py  -p paths_config.yml -m thin_rn -c eval_config_default.yml
+#python impl_recon/eval.py  -p paths_config_test.yml -m thin_rn -c eval_config_default.yml

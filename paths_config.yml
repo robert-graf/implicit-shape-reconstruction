@@ -1,0 +1,33 @@
+# Path to directory where all the models are
+model_basedir: ./my_models
+
+# Path to base data directory
+data_basedir: /media/data/robert/datasets/verse19/v19_BIDS_structure/dataset-verse19training/
+# Directory name with labels within base data directory
+labels_dirname: /media/data/robert/datasets/verse19/v19_BIDS_structure/dataset-verse19training/derivatives2/
+
+# Path to directory with casename files
+casefiles_basedir: ./casename_files/verse19/
+
+# Path to base output directory for reconstructions
+output_basedir: /media/data/robert/datasets/verse19/reconstruction
+
+#python impl_recon/train.py -p paths_config.yml -c config_files/training/train_config_verse_thin_rn.yml
+#python impl_recon/train.py -p paths_config.yml -c config_files/training/train_config_verse_thick_rn.yml
+
+#python impl_recon/train.py -p paths_config.yml -c config_files/training/train_config_verse_thin_rn.yml -f /media/data/robert/datasets/verse19/v19_BIDS_structure/dataset-verse19training/thorakal/
+#python impl_recon/train.py -p paths_config.yml -c config_files/training/train_config_verse_thin_rn_epoch_320.yml -f /media/data/robert/datasets/verse19/v19_BIDS_structure/dataset-verse19training/hals/
+
+#python impl_recon/eval.py  -p paths_config.yml -m thin_rn -c eval_config_default.yml
+#python impl_recon/eval.py  -p paths_config_test.yml -m thin_rn -c eval_config_default.yml
+
+
+
+
+
+#python impl_recon/eval_auto.py  -p paths_config_test.yml -m thick_rn -c eval_config.yml
+
+#python impl_recon/eval_auto.py  -p paths_config_test.yml -m thin_rn -c eval_config.yml -min 20 -max 27
+#python impl_recon/eval_auto.py  -p paths_config_test.yml -m thin_rn_thorakal -c eval_config.yml -min 8 -max 20
+#python impl_recon/eval_auto.py  -p paths_config_test.yml -m thin_rn_hals -c eval_config.yml -min 1 -max 8
+#python impl_recon/eval_combine.py  

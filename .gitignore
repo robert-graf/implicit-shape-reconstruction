@@ -132,3 +132,6 @@ dmypy.json
 .pyre/
 
 .DS_Store
+
+my_models
+reconstruction

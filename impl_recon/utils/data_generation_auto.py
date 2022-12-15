@@ -74,14 +74,14 @@ def load_volumes(volumes_dir: Path, casenames: List[str]) -> Tuple[List[torch.Te
     volumes: list[np.ndarray] = []
     spacings: list[np.ndarray] = []
     for casename in casenames:
-        curr_pattern = f"*{casename}*.nii*"
-        print(curr_pattern, volumes_dir)
-        files = list(volumes_dir.glob(curr_pattern))
-        if len(files) != 1:
-            print(files)
-            print(f"Exactly one file must fit the pattern:\n" f"{volumes_dir / curr_pattern}")
-            continue
-        volume, affine = io_utils.load_nifti_file(files[0])
+        # curr_pattern = f"*{casename}*.nii*"
+        # print(curr_pattern, volumes_dir)
+        # files = list(volumes_dir.glob(curr_pattern))
+        # if len(files) != 1:
+        #    print(files)
+        #    print(f"Exactly one file must fit the pattern:\n" f"{volumes_dir / curr_pattern}")
+        #    continue
+        volume, affine = io_utils.load_nifti_file(Path(casename))
         # Currently only transformation matrices with scaling & translation are supported
         if not geometry_utils.is_matrix_scaling_and_transform(affine):
 
@@ -233,7 +233,6 @@ class ReconNetDataset(data.Dataset):
         :param crop_size: if 0, disabled.
         :param do_deterministic_sparsing: use deterministic sparsification offset and not random
         """
-
         self.casenames = casenames
         # Store this for deterministic random sampling operations later
         num_cases_original = len(self.casenames)
@@ -484,7 +483,9 @@ class ImplicitDataset(OrthogonalSlices):
         return result_dict
 
 
-def create_data_loader(params: Dict, phase_type: PhaseType, verbose: bool) -> data.DataLoader:
+def create_data_loader(
+    info: list[tuple[Path, np.ndarray, np.ndarray, Path, tuple[int, ...]]], params: Dict, phase_type: PhaseType, verbose: bool
+) -> data.DataLoader:
     """For AD, use shared training and validation during train/val, and not during inferernce.
     For other tasks, there is no difference between validation and inference.
     """
@@ -495,49 +496,25 @@ def create_data_loader(params: Dict, phase_type: PhaseType, verbose: bool) -> da
     labels_dir = base_dir / params["labels_dirname"]
     casefiles_basedir = params["casefiles_basedir"]
 
-    train_folder = params["train_folder"]
-
-    if train_folder is not None:
-        base_dir = Path(train_folder).parent
-        labels_dir = Path(train_folder)
-        base_dir = Path(train_folder)
-
     # if not labels_dir.exists() or not casefiles_basedir.exists():
     #    raise ValueError('At least one of following data directories does not exist:'
     #                     '\n{}\n{}'
     #                     .format(labels_dir, casefiles_basedir))
 
-    is_training = phase_type == PhaseType.TRAIN
-
+    assert phase_type != PhaseType.TRAIN
     # Load the respective casenames
-    casefilename = params["train_casefile"] if phase_type != PhaseType.INF else params["test_casefile"]
-    if train_folder is not None:
-        casenames = [f.name.replace(".nii.gz", "") for f in labels_dir.glob("*.nii.gz")]
-    else:
-        casenames = io_utils.load_casenames(casefiles_basedir / casefilename)
-    # For training & validation, split the data here (except for AD, which does the split itself)
     val_fraction = params["val_fraction"]
-    if phase_type != PhaseType.INF and params["task_type"] != config_io.TaskType.AD:
-        casenames = split_train_val_casenames(casenames, val_fraction, is_training)
-
-    if is_training:
-        do_shuffle = True
-        data_name = "training data"
-        batch_size = params["batch_size_train"]
-        num_points_per_example_per_dim = params["num_points_per_example_per_dim_train"]
-        do_drop_last = True
-    else:
-        if params["batch_size_val"] != 1:
-            print(
-                f"Warning: validation employs full volumes, which may differ in shape between "
-                f'examples. Therefore, running it with batch size {params["batch_size_val"]} > 1 '
-                f"may lead to crashes."
-            )
-        do_shuffle = False
-        data_name = "validation data" if phase_type == PhaseType.VAL else "test data"
-        batch_size = params["batch_size_val"]
-        num_points_per_example_per_dim = -1
-        do_drop_last = False
+    if params["batch_size_val"] != 1:
+        print(
+            f"Warning: validation employs full volumes, which may differ in shape between "
+            f'examples. Therefore, running it with batch size {params["batch_size_val"]} > 1 '
+            f"may lead to crashes."
+        )
+    do_shuffle = False
+    data_name = "validation data" if phase_type == PhaseType.VAL else "test data"
+    batch_size = params["batch_size_val"]
+    num_points_per_example_per_dim = -1
+    do_drop_last = False
     # Yield full resolution volumes only during inference (with batch size 1, ideally)
     do_yield_full_res = phase_type == PhaseType.INF
     slice_step_size = params["slice_step_size"]
@@ -545,7 +522,7 @@ def create_data_loader(params: Dict, phase_type: PhaseType, verbose: bool) -> da
     use_thick_slices = params["use_thick_slices"]
     num_workers = params["num_workers"]
     task_type = params["task_type"]
-
+    casenames = [str(i[0]) for i in info]
     if verbose:
         print(f"Loading {data_name} into memory...")
     t0 = time.time()
@@ -568,9 +545,8 @@ def create_data_loader(params: Dict, phase_type: PhaseType, verbose: bool) -> da
             )
     elif task_type == config_io.TaskType.RN:
         crop_size = params["crop_size"]
-        do_deterministic_sparsing = not is_training
         ds = ReconNetDataset(
-            labels_dir, casenames, slice_step_size, slice_step_axis, use_thick_slices, crop_size, do_deterministic_sparsing
+            labels_dir, casenames, slice_step_size, slice_step_axis, use_thick_slices, crop_size, do_deterministic_sparsing=True
         )
     else:
         raise ValueError(f"Unknown task type {task_type}.")

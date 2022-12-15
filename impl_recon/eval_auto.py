@@ -9,7 +9,7 @@ from typing import List
 
 import numpy as np
 import torch
-
+import nibabel as nib
 from impl_recon import train
 from impl_recon.models import implicits
 from impl_recon.utils import config_io, data_generation_auto, impl_utils, io_utils, patch_utils
@@ -44,7 +44,7 @@ def export_batch(batch: dict, labels_pred: np.ndarray, spacings: np.ndarray, tas
         raise ValueError(f"Unknown task type {task_type}.")
 
     for i in range(labels_pred.shape[0]):
-        casename = batch_casenames[i]
+        casename = Path(batch_casenames[i]).name.replace(".nii.gz", "")
         spacing = spacings[i]
         target_file = target_dir / f"{casename}_pred.nii.gz"
         io_utils.save_nifti_file(labels_pred[i, 0].astype(np.uint8), np.diag([*spacing, 1]), target_file)
@@ -54,10 +54,12 @@ def export_batch(batch: dict, labels_pred: np.ndarray, spacings: np.ndarray, tas
         if is_task_ad and offsets_lr is not None:
             ijk_to_lps[:3, 3] = offsets_lr[i]
         target_file_lr = target_dir / f"{casename}_lr.nii.gz"
+
         io_utils.save_nifti_file(label_lr.astype(np.uint8), ijk_to_lps, target_file_lr)
 
 
 def main():
+    # load parm_s
     params, eval_config_path = config_io.parse_config_eval()
 
     evaluate_predictions = params["evaluate_predictions"]
@@ -77,47 +79,61 @@ def main():
 
     params["crop_size"] = 0
     params["batch_size_val"] = 1
-    latent_lr = 1e-2
-    if task_type == config_io.TaskType.AD:
-        if sample_orthogonal_slices:
-            target_dirname += f"_{latent_num_iters}_eval_ortho"
-        else:
-            target_dirname += f'_{latent_num_iters}_eval_ax{params["slice_step_axis"]}' f'_x{params["slice_step_size"]}'
-    elif task_type == config_io.TaskType.RN:
-        target_dirname += f'_eval_ax{params["slice_step_axis"]}_x{params["slice_step_size"]}'
-    else:
-        raise ValueError(f"Unknown task type {task_type}.")
-    target_dir = target_basedir / target_dirname
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # NEW -- CALL Preprocessing
+    from preprocessing import extract_vertebra
 
-    latent_dim = params["latent_dim"]
+    labels_dir = Path("/media/data/robert/datasets/verse19/test_seg/")
+    info = extract_vertebra.main(labels_dir=labels_dir, label_range=list(range(params["min"], params["max"])))  # TODO fix paths
 
-    if export_predictions:
-        if not target_basedir.exists():
-            raise ValueError(f"Target base directory does not exist:\n{target_basedir}")
-        if target_dir.exists():
-            if not allow_overwriting:
-                raise ValueError(f"Target directory exists and overwriting is forbidden:\n" f"{target_dir}")
+    # Folder name
+    if True:
+        latent_lr = 1e-2
+        if task_type == config_io.TaskType.AD:
+            if sample_orthogonal_slices:
+                target_dirname += f"_{latent_num_iters}_eval_ortho"
             else:
-                for filepath in target_dir.glob("*"):
-                    filepath.unlink()
+                target_dirname += f'_{latent_num_iters}_eval_ax{params["slice_step_axis"]}' f'_x{params["slice_step_size"]}'
+        elif task_type == config_io.TaskType.RN:
+            target_dirname += f'_eval_ax{params["slice_step_axis"]}_x{params["slice_step_size"]}'
         else:
-            target_dir.mkdir()
+            raise ValueError(f"Unknown task type {task_type}.")
+        target_dir = target_basedir / target_dirname
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        print(f"Writing results to: {target_dir}")
-        # Redirect stdout to file + stdout
-        sys.stdout = io_utils.Logger(target_dir / "log.txt", "w")
-        # Write eval config
-        config_io.write_config(eval_config_path, target_dir)
+        latent_dim = params["latent_dim"]
+        # Check folder
+        if export_predictions:
+            if not target_basedir.exists():
+                target_basedir.mkdir(exist_ok=True)
+            if target_dir.exists():
+                if not allow_overwriting:
+                    raise ValueError(f"Target directory exists and overwriting is forbidden:\n" f"{target_dir}")
+                else:
+                    for filepath in Path(target_dir).glob("*"):
+                        if filepath.is_dir():
+                            for f in filepath.glob("*"):
+                                f.unlink()
+                            filepath.rmdir()
+                        else:
+                            filepath.unlink()
+            else:
+                target_dir.mkdir()
 
-    # Print some info
-    print(f'Evaluating model \'{params["model_name"]}\'.')
-    if "sample_orthogonal_slices" in params and params["sample_orthogonal_slices"]:
-        print("Reconstructing from three orthogonal slices.")
-    else:
-        print(f'Reconstructing from slices with step size {params["slice_step_size"]} ' f'along axis {params["slice_step_axis"]}.')
+            print(f"Writing results to: {target_dir}")
+            # Redirect stdout to file + stdout
+            sys.stdout = io_utils.Logger(target_dir / "log.txt", "w")
+            # Write eval config
+            config_io.write_config(eval_config_path, target_dir)
 
-    ds_loader = data_generation_auto.create_data_loader(params, data_generation_auto.PhaseType.INF, True)
+        # Print some info
+        print(f'Evaluating model \'{params["model_name"]}\'.')
+        if "sample_orthogonal_slices" in params and params["sample_orthogonal_slices"]:
+            print("Reconstructing from three orthogonal slices.")
+        else:
+            print(f'Reconstructing from slices with step size {params["slice_step_size"]} ' f'along axis {params["slice_step_axis"]}.')
+
+    ds_loader = data_generation_auto.create_data_loader(info, params, data_generation_auto.PhaseType.INF, True)  # TODO
+    # Load Net
     # During inference we rely on image size stored in with the model (it's read later)
     net = train.create_model(params, torch.ones(3, dtype=torch.float32))
     checkpoint = io_utils.load_latest_checkpoint(model_dir, "checkpoint", "pth", True)
@@ -170,7 +186,7 @@ def main():
             print(f'Batch cases: {batch["casenames"]}')
 
             # Initialization scaling follows DeepSDF
-            latents_batch = torch.nn.Parameter(
+            latents_batch = torch.nn.Parameter(  # type: ignore
                 torch.normal(0.0, 1e-4, [labels_gt_sparse.shape[0], latent_dim], device=device), requires_grad=True
             )
 
@@ -228,6 +244,55 @@ def main():
             f"DSC: {np.mean(all_dice_metrics):.2f} +- {np.std(all_dice_metrics):.2f} in "
             f"[{np.min(all_dice_metrics):.2f}, {np.max(all_dice_metrics):.2f}]"
         )
+    input_path_old = ""
+    out_nii = None
+    affine = None
+
+    def save(out_nii, input_name, affine):
+        out = Path(target_dir) / "prediction"
+        out.mkdir(exist_ok=True)
+        ni = nib.Nifti1Image(out_nii, affine)  # type: ignore
+        out_path = Path(out, input_name.name.replace(".nii.gz", "_acq-iso.nii.gz"))
+        print("[*] Save:", out_path)
+        ref = nib.load(Path(labels_dir, input_name))
+        ni = extract_vertebra.reorient_same_as(ni, ref)
+        nib.save(ni, out_path)
+        a: list = ref.header.get_zooms()
+        a = [i for i in a]
+        ni = extract_vertebra.resample_nib(ni, voxel_spacing=a)
+        print(ni.affine, ref.affine)
+        ni = nib.Nifti1Image(ni.get_fdata(), ref.affine)
+        out_path = Path(out, input_name.name.replace(".nii.gz", "_pred.nii.gz"))
+        print("[*] Save:", out_path)
+        nib.save(ni, out_path)
+
+    for vert_path, size, position, input_path, size_full_image in info:
+        if input_path_old != input_path:
+            # save
+            if out_nii is not None:
+                save(out_nii, input_path_old, affine)
+            input_path_old = input_path
+            out_nii = np.zeros(size_full_image)
+
+        assert out_nii is not None
+        nii_vert = nib.load(Path(target_dir, vert_path.name.replace(".nii.gz", "_pred.nii.gz")))
+        affine = nii_vert.affine
+        arr_vert = nii_vert.get_fdata()
+        vert_id = int(vert_path.name.rsplit("_", maxsplit=1)[1].replace(".nii.gz", ""))
+        arr_vert = extract_vertebra.invert_crop_and_pad(arr_vert, size)
+        from math import floor, ceil
+
+        out_nii[
+            position[0] - ceil(size[0] / 2) : position[0] + floor(size[0] / 2),
+            position[1] - ceil(size[1] / 2) : position[1] + floor(size[1] / 2),
+            position[2] - ceil(size[2] / 2) : position[2] + floor(size[2] / 2),
+        ][arr_vert != 0] = (
+            vert_id * arr_vert[arr_vert != 0]
+        )
+    # save_last
+    if out_nii is not None:
+        print(type(out_nii), input_path_old)
+        save(out_nii, input_path_old, affine)
 
 
 if __name__ == "__main__":
