@@ -293,16 +293,33 @@ class ReconNetDataset(data.Dataset):
         else:
             slice_start_id = self.slice_start_ids[item]
         label_lr, spacing_lr, offset_lr = sparsen_volume(
-            label_hr, self.spacings[item], self.offsets[item], slice_step_axis, slice_step_size, slice_start_id, self.use_thick_slices
+            label_hr,
+            self.spacings[item],
+            self.offsets[item],
+            slice_step_axis,
+            slice_step_size,
+            slice_start_id,
+            self.use_thick_slices,
         )
         label_upsampled = image_utils.interpolate_volume(
-            label_lr, spacing_lr, offset_lr, torch.tensor(label_hr.shape), self.spacings[item], self.offsets[item], "bilinear"
+            label_lr,
+            spacing_lr,
+            offset_lr,
+            torch.tensor(label_hr.shape),
+            self.spacings[item],
+            self.offsets[item],
+            "bilinear",
         )
         # Create channel dim
         label_hr = label_hr.unsqueeze(0)
         label_upsampled = label_upsampled.unsqueeze(0)
 
-        return {"labels_lr": label_upsampled, "labels": label_hr, "spacings": self.spacings[item], "casenames": self.casenames[item]}
+        return {
+            "labels_lr": label_upsampled,
+            "labels": label_hr,
+            "spacings": self.spacings[item],
+            "casenames": self.casenames[item],
+        }
 
 
 class OrthogonalSlices(data.Dataset):
@@ -484,7 +501,10 @@ class ImplicitDataset(OrthogonalSlices):
 
 
 def create_data_loader(
-    info: list[tuple[Path, np.ndarray, np.ndarray, Path, tuple[int, ...]]], params: Dict, phase_type: PhaseType, verbose: bool
+    info: list[tuple[Path, np.ndarray, np.ndarray, Path, tuple[int, ...]]],
+    params: Dict,
+    phase_type: PhaseType,
+    verbose: bool,
 ) -> data.DataLoader:
     """For AD, use shared training and validation during train/val, and not during inferernce.
     For other tasks, there is no difference between validation and inference.
@@ -546,7 +566,13 @@ def create_data_loader(
     elif task_type == config_io.TaskType.RN:
         crop_size = params["crop_size"]
         ds = ReconNetDataset(
-            labels_dir, casenames, slice_step_size, slice_step_axis, use_thick_slices, crop_size, do_deterministic_sparsing=True
+            labels_dir,
+            casenames,
+            slice_step_size,
+            slice_step_axis,
+            use_thick_slices,
+            crop_size,
+            do_deterministic_sparsing=True,
         )
     else:
         raise ValueError(f"Unknown task type {task_type}.")

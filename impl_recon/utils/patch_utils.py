@@ -9,14 +9,14 @@ This code is adapted from the nnUNet: https://github.com/MIC-DKFZ/nnUNet
 """
 
 
-def compute_steps_for_sliding_window(patch_size: List[int], image_size: Tuple[int],
-                                     step_size: float) -> List[List[int]]:
+def compute_steps_for_sliding_window(
+    patch_size: List[int], image_size: Tuple[int], step_size: float
+) -> List[List[int]]:
     """For each dimension, return positions of windows."""
     if any(x < y for x, y in zip(image_size, patch_size)):
-        raise ValueError('Image size cannot be smaller than patch size in any dimension. Reduce '
-                         'the patch size.')
+        raise ValueError("Image size cannot be smaller than patch size in any dimension. Reduce " "the patch size.")
     if not 0 < step_size <= 1:
-        raise ValueError('Step size must be in (0, 1].')
+        raise ValueError("Step size must be in (0, 1].")
 
     steps = []
     for img_size, ptch_size in zip(image_size, patch_size):
@@ -42,13 +42,14 @@ def get_gaussian(patch_size: List[int], sigma_scale: float = 0.125) -> np.ndarra
     center_coords = [i // 2 for i in patch_size]
     onehot[tuple(center_coords)] = 1
     sigmas = [x * sigma_scale for x in patch_size]
-    gaussian_importance_map = gaussian_filter(onehot, sigmas, 0, mode='constant', cval=0)
-    gaussian_importance_map = gaussian_importance_map / np.max(gaussian_importance_map) * 1
+    gaussian_importance_map = gaussian_filter(onehot, sigmas, 0, mode="constant", cval=0)
+    gaussian_importance_map = gaussian_importance_map / np.max(gaussian_importance_map) * 1  # type: ignore
     gaussian_importance_map = gaussian_importance_map.astype(np.float32)
 
     # Gaussian_importance_map cannot be 0, otherwise we may end up with nans!
     gaussian_importance_map[gaussian_importance_map == 0] = np.min(
-        gaussian_importance_map[gaussian_importance_map != 0])
+        gaussian_importance_map[gaussian_importance_map != 0]
+    )
 
     return gaussian_importance_map
 
@@ -66,8 +67,7 @@ def predict_tiled(data: torch.Tensor, net: torch.nn.Module, patch_size: List[int
     gaussian_importance_map = torch.from_numpy(gaussian_importance_map).to(data.device)
 
     # Do the predictions
-    aggregated_results = torch.zeros([data.shape[0], 1, *data.shape[2:]], dtype=torch.float32,
-                                     device=data.device)
+    aggregated_results = torch.zeros([data.shape[0], 1, *data.shape[2:]], dtype=torch.float32, device=data.device)
     aggregated_nb_of_predictions = torch.zeros_like(aggregated_results)
     for i in range(data.shape[0]):
         for x in steps[0]:
@@ -85,8 +85,7 @@ def predict_tiled(data: torch.Tensor, net: torch.nn.Module, patch_size: List[int
                     predicted_patch *= gaussian_importance_map
 
                     aggregated_results[i, :, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z] += predicted_patch[0]
-                    aggregated_nb_of_predictions[i, :, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z] \
-                        += gaussian_importance_map
+                    aggregated_nb_of_predictions[i, :, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z] += gaussian_importance_map
 
     # Normalize the aggregated logits
     logits = aggregated_results / aggregated_nb_of_predictions

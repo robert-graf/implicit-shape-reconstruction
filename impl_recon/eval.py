@@ -12,10 +12,12 @@ import torch
 
 from impl_recon import train
 from impl_recon.models import implicits
-from impl_recon.utils import config_io, data_generation_auto, impl_utils, io_utils, patch_utils
+from impl_recon.utils import config_io, data_generation, impl_utils, io_utils, patch_utils
 
 
-def export_batch(batch: dict, labels_pred: np.ndarray, spacings: np.ndarray, task_type: config_io.TaskType, target_dir: Path):
+def export_batch(
+    batch: dict, labels_pred: np.ndarray, spacings: np.ndarray, task_type: config_io.TaskType, target_dir: Path
+):
     batch_casenames = batch["casenames"]
 
     is_task_ad = task_type == config_io.TaskType.AD
@@ -115,9 +117,12 @@ def main():
     if "sample_orthogonal_slices" in params and params["sample_orthogonal_slices"]:
         print("Reconstructing from three orthogonal slices.")
     else:
-        print(f'Reconstructing from slices with step size {params["slice_step_size"]} ' f'along axis {params["slice_step_axis"]}.')
+        print(
+            f'Reconstructing from slices with step size {params["slice_step_size"]} '
+            f'along axis {params["slice_step_axis"]}.'
+        )
 
-    ds_loader = data_generation_auto.create_data_loader(params, data_generation_auto.PhaseType.INF, True)
+    ds_loader = data_generation.create_data_loader(params, data_generation.PhaseType.INF, True)
     # During inference we rely on image size stored in with the model (it's read later)
     net = train.create_model(params, torch.ones(3, dtype=torch.float32))
     checkpoint = io_utils.load_latest_checkpoint(model_dir, "checkpoint", "pth", True)
@@ -136,8 +141,8 @@ def main():
 
     # For AD, check that all volumes lie inside the training image_size
     if task_type == config_io.TaskType.AD:
-        assert isinstance(ds_loader.dataset, data_generation_auto.ImplicitDataset) or isinstance(
-            ds_loader.dataset, data_generation_auto.OrthogonalSlices
+        assert isinstance(ds_loader.dataset, data_generation.ImplicitDataset) or isinstance(
+            ds_loader.dataset, data_generation.OrthogonalSlices
         )
         assert isinstance(net, implicits.AutoDecoder)
         image_size_train = net.image_size.detach().cpu()
@@ -147,7 +152,8 @@ def main():
         if torch.any(image_size_curr > image_size_train + eps):
             # This may not necessarily be a problem, but worth looking into if it happens
             raise ValueError(
-                f"Max image size is larger than current model's: " f"{image_size_curr} > {image_size_train} with epsilon {eps}."
+                f"Max image size is larger than current model's: "
+                f"{image_size_curr} > {image_size_train} with epsilon {eps}."
             )
 
     all_dice_metrics: List[float] = []
@@ -211,7 +217,9 @@ def main():
         spacings_cpu = spacings.numpy()
 
         if evaluate_predictions:
-            impl_utils.eval_batch(labels_pred_cpu, labels_gt_cpu, spacings_cpu, all_dice_metrics, asds, hd95s, max_distances, True)
+            impl_utils.eval_batch(
+                labels_pred_cpu, labels_gt_cpu, spacings_cpu, all_dice_metrics, asds, hd95s, max_distances, True
+            )
         if export_predictions:
             export_batch(batch, labels_pred_cpu, spacings_cpu, task_type, target_dir)
 

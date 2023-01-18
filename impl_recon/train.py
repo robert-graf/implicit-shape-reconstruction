@@ -43,7 +43,7 @@ def train_one_epoch(
     task_type: config_io.TaskType,
     ds_loader: data.DataLoader,
     net: torch.nn.Module,
-    latents: torch.nn.Parameter,
+    latents: torch.nn.Parameter,  # type:ignore
     lat_reg_lambda: float,
     optimizer: opt.Optimizer,
     criterion: torch.nn.Module,
@@ -175,7 +175,7 @@ def validate(
     task_type: config_io.TaskType,
     ds_loader: data.DataLoader,
     net: torch.nn.Module,
-    latents: torch.nn.Parameter,
+    latents: torch.nn.Parameter,  # type:ignore
     metric: torch.nn.Module,
     device: torch.device,
     epoch: int,
@@ -259,7 +259,11 @@ def main():
 
     ds_loader_train = data_generation.create_data_loader(params, data_generation.PhaseType.TRAIN, True)
     ds_loader_val = data_generation.create_data_loader(params, data_generation.PhaseType.VAL, True)
-    image_size = ds_loader_train.dataset.image_size if isinstance(ds_loader_train.dataset, data_generation.ImplicitDataset) else None
+    image_size = (
+        ds_loader_train.dataset.image_size
+        if isinstance(ds_loader_train.dataset, data_generation.ImplicitDataset)
+        else None
+    )
 
     if not ds_loader_train:
         raise ValueError(f"Number of training examples is smaller than the batch size.")
@@ -267,7 +271,7 @@ def main():
     net = create_model(params, image_size)
     if torch.cuda.device_count() > 1:
         print(f"Using {torch.cuda.device_count()} GPUs for training.")
-        net = torch.nn.DataParallel(net)  # experimental
+        net = torch.nn.DataParallel(net)  # type : ignore
     net = net.to(device)
     print(net)
 
@@ -276,10 +280,14 @@ def main():
         latent_dim = params["latent_dim"]
         num_examples_train = len(ds_loader_train.dataset)  # type: ignore[arg-type]
         # Initialization scaling follows DeepSDF
-        latents_train = torch.nn.Parameter(torch.normal(0.0, 1 / math.sqrt(latent_dim), [num_examples_train, latent_dim], device=device))
-        optimizer = torch.optim.Adam([{"params": net.parameters(), "lr": learning_rate}, {"params": latents_train, "lr": lr_lats}])
+        latents_train = torch.nn.Parameter(  # type : ignore
+            torch.normal(0.0, 1 / math.sqrt(latent_dim), [num_examples_train, latent_dim], device=device)
+        )
+        optimizer = torch.optim.Adam(
+            [{"params": net.parameters(), "lr": learning_rate}, {"params": latents_train, "lr": lr_lats}]
+        )
     else:
-        latents_train = torch.nn.Parameter(torch.empty(0))
+        latents_train = torch.nn.Parameter(torch.empty(0))  # type : ignore
         optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
 
     criterion = create_loss().to(device)
@@ -291,33 +299,39 @@ def main():
 
     for epoch in range(num_epochs_trained, num_epochs_target):
         train_one_epoch(
-            task_type,
-            ds_loader_train,
-            net,
-            latents_train,
-            lat_reg_lambda,
-            optimizer,
-            criterion,
-            metric,
-            device,
-            epoch,
-            num_epochs_target,
-            global_step,
-            log_epoch_count,
-            writer,
-            True,
+            task_type,  # task_type: config_io.TaskType,
+            ds_loader_train,  # ds_loader: data.DataLoader,
+            net,  # net: torch.nn.Module,
+            latents_train,  # latents: torch.nn.Parameter,  # type:ignore
+            lat_reg_lambda,  # lat_reg_lambda: float,
+            optimizer,  # optimizer: opt.Optimizer,
+            criterion,  # criterion: torch.nn.Module,
+            metric,  # metric: torch.nn.Module,
+            device,  # device: torch.device,
+            epoch,  # epoch: int,
+            num_epochs_target,  # num_epochs_target: int,
+            global_step,  # global_step: torch.Tensor,
+            log_epoch_count,  # log_epoch_count: int,
+            writer,  # logger: Optional[SummaryWriter],
+            True,  # verbose: bool,
         )
         if epoch % log_epoch_count == 0:
             validate(task_type, ds_loader_val, net, latents_train, metric, device, epoch, writer, True)
 
         if checkpoint_writer is not None and epoch % checkpoint_epoch_count == 0:
             checkpoint_writer.write_rolling_checkpoint(
-                {"net": net.state_dict(), "latents_train": latents_train}, optimizer.state_dict(), int(global_step.item()), epoch + 1
+                {"net": net.state_dict(), "latents_train": latents_train},
+                optimizer.state_dict(),
+                int(global_step.item()),
+                epoch + 1,
             )
 
     if checkpoint_writer is not None:
         checkpoint_writer.write_rolling_checkpoint(
-            {"net": net.state_dict(), "latents_train": latents_train}, optimizer.state_dict(), int(global_step.item()), num_epochs_target
+            {"net": net.state_dict(), "latents_train": latents_train},
+            optimizer.state_dict(),
+            int(global_step.item()),
+            num_epochs_target,
         )
 
 
