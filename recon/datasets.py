@@ -110,9 +110,19 @@ class RNDataset(data.Dataset):
         file = self.cases[item]
         # label_lr, spacing_lr = load_volume(raw)
         # offset_lr = Tensor([x / 2 for x in spacing_lr])
-        raw = np.load(file)
-        label_upsampled = torch.Tensor(raw["low_res"])
-        label_gt = torch.Tensor(raw["high_res"])
+        try:
+            raw = np.load(file)
+            label_upsampled = torch.Tensor(raw["low_res"])
+            label_gt = torch.Tensor(raw["high_res"])
+        except Exception as ex:
+            print(file)
+            print(file)
+            print(file)
+            print(file)
+            Path(file).unlink()
+            del self.cases[item]
+            return self.__getitem__(item + 1)
+
         # low_res=cropped_vert, high_res=cropped_vert_org)
         # label_gt, spacing_gt = load_volume(gt)
         # offset_gt = Tensor([x / 2 for x in spacing_gt])

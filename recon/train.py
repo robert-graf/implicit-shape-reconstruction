@@ -97,7 +97,7 @@ class ReconNetTraining(pl.LightningModule):
         if lat_reg is not None and self.opt.lat_reg_lambda > 0:
             # Gradually build up for the first 100 epochs (follows DeepSDF)
             loss += min(1.0, self.current_epoch / 100) * self.opt.lat_reg_lambda * lat_reg
-        self.log("metric/train", loss.item())
+        self.log("metric/train", loss.item(), batch_size=labels.shape[0])
         with torch.no_grad():
             self.num_metrics_t += labels_pred.shape[0]
             self.train_dice.append(self.metric(labels_pred, labels).item())
@@ -105,13 +105,13 @@ class ReconNetTraining(pl.LightningModule):
 
     def training_epoch_end(self, outputs) -> None:
         metric_avg = Tensor(self.train_dice).sum() / self.num_metrics_t
-        self.num_metrics_F = 0
+        self.num_metrics_t = 0
         self.train_dice.clear()
         self.metric_avg_train = metric_avg
         # print(f"[train] metric {metric_avg:.3f}{'  '}")
 
-        print(f"\r[train] metric {1-self.metric_avg_train:.3f}{'  ':100}")
-        print(f"[val] metric {1-self.metric_avg_val:.3f}{' ':100}")
+        print(f"\r[train] metric {self.metric_avg_train:.3f}{'  ':100}")
+        print(f"[val] metric {self.metric_avg_val:.3f}{' ':100}")
 
     def validation_step(self, batch, batch_idx, logger: TensorBoardLogger | None = None, verbose=True):
         if logger is None:

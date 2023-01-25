@@ -20,9 +20,20 @@ import random
 # Req: all iso, ("P", "I", "R");
 
 
-def findFiles(path: str | Path = "/media/data/robert/datasets/verse19/v19_BIDS_structure/dataset-verse19training/", filter_non_iso=True):
+def findFiles(
+    path: str | Path = "/media/data/robert/datasets/verse19/v19_BIDS_structure/dataset-verse19training/",
+    filter_non_iso=True,
+):
+
     out_list: list[dict[str, BIDS_FILE]] = []
-    gi = BIDS_Global_info(datasets=[str(path)], parents=["rawdata", "derivatives"], clear=True)
+    gi = BIDS_Global_info(
+        datasets=[str(path)],
+        parents=["rawdata", "derivatives"],
+        clear=True,
+        additional_key=["sequ", "seg", "ovl", "snp"],
+        verbose=False,
+    )
+    ignored = 0
     for subject_name, sub in gi.enumerate_subjects(sort=True):
         query = sub.new_query()
         query.flatten()
@@ -30,12 +41,20 @@ def findFiles(path: str | Path = "/media/data/robert/datasets/verse19/v19_BIDS_s
         query.filter("format", lambda x: x != "snp")
         query.unflatten()
         query.filter("format", "ct")
+        query.filter("sub", lambda x: x != "ctfu00522")
+        query.filter("sub", lambda x: x != "ctfu00514")
+
         # query.filter("format", "vert")
         for i in query.loop_dict():
-            ct_nii = NII.load_bids(i["ct"][0])
-            if filter_non_iso and ct_nii.zoom != (1.0, 1.0, 1.0):
+            try:
+                ct_nii = NII.load_bids(i["ct"][0])
+            except Exception as e:
+                continue
+            if filter_non_iso and any(ct_nii.zoom[i] > 2.01 for i in range(3)):
+                ignored += 1
                 continue
             out_list.append(i)  # type: ignore
+    print(ignored, "/", len(gi.enumerate_subjects(sort=True)), Path(path).name)
     return out_list
 
 
@@ -49,20 +68,29 @@ roots = {
     5: "/media/data/robert/datasets/CT_TRAINING2_org/dataset-verse20",
 }
 
+skip_counter = 0
+
 
 def generate(i, out="/media/data/robert/datasets/verse19/"):
+    global skip_counter
     bbox_size = 128
 
     out_tmp_path = Path(out, "tmp" + str(i))
-    out_path = Path(out, "docker_ds")
+    out_path = Path(out, "docker_ds2")
     if not Path(roots[i]).exists():
         return
     l = findFiles(roots[i])
     # downscale
     for family_lr in l:
-        ct, vert, subreg = family_lr["ct"], family_lr["msk_vert"], family_lr["ctd_subreg"]
+        try:
+            ct, vert, subreg = family_lr["ct"], family_lr["msk_vert"], family_lr["ctd_subreg"]
+        except Exception as ex:
+            continue
+
         path = ct.get_changed_path(file_type="nii.gz", parent="rawdata", dataset_path=str(out_tmp_path))
-        path_cdt = ct.get_changed_path(file_type="json", dataset_path=str(out_tmp_path), info={"seg": "subreg"}, format="ctd")
+        path_cdt = ct.get_changed_path(
+            file_type="json", dataset_path=str(out_tmp_path), info={"seg": "subreg"}, format="ctd"
+        )
 
         if path.exists() and path_cdt.exists():
             continue
@@ -84,60 +112,98 @@ def generate(i, out="/media/data/robert/datasets/verse19/"):
     max_size = np.zeros(3, np.int32)
     avg_size = np.zeros(3, np.float32)
     count = 0
-    if len(l) != len(l2):
-        l = l[: len(l2)]
-    i = 0
-    for family, family_lr in zip(l, l2):
+    l2_f = []
+    # if len(l) != len(l2):
+    #    l = l[: len(l2)]
+    for i in l:
+        end = True
+        for j in l2:
+            if "msk_vert" not in j:
+                l2.remove(j)
+            elif "msk_vert" not in i:
+                break
+            elif i["msk_vert"].get("sub") == j["msk_vert"].get("sub"):
+                l2.remove(j)
+                l2_f.append(j)
+                end = False
+                break
+        if end:
+            l2_f.append(None)
+    Parallel(n_jobs=10)(
+        delayed(__helper)(family_lr, family, out_path, skip_counter, family_counter, l, bbox_size)
+        for family_counter, (family, family_lr) in enumerate(zip(l, l2_f))
+    )
+
+
+def __helper(family_lr, family, out_path, skip_counter, family_counter, l, bbox_size):
+    try:
         ct, vert, subreg = family_lr["ct"], family_lr["msk_vert"], family_lr["ctd_subreg"]
         ct_org, vert_org, subreg_org = family["ct"], family["msk_vert"], family["ctd_subreg"]
-        cdt = load_centroids(subreg)
-        cdt.zoom = (1, 1, 3)
-        cdt_iso = cdt.rescale_centroids((1, 1, 1))
-        i += 1
-        # ct_nii_sm = NII.load_bids(ct)
-        assert vert_org.get("sub") == vert.get("sub")
+    except Exception as ex:
+        return
+    cdt = load_centroids(subreg)
+    cdt.zoom = (1, 1, 3)
+    cdt_iso = cdt.rescale_centroids((1, 1, 1))
+    # ct_nii_sm = NII.load_bids(ct)
+    print(f'{vert_org.get("sub")} {vert.get("sub")}')
+    assert vert_org.get("sub") == vert.get("sub"), f'{vert_org.get("sub")} {vert.get("sub")}'
+    try:
         vert_nii = NII.load_bids(vert)
-        # vert_nii.rescale_nib_((1, 1, 1), verbose=True)
-        vert_nii_iso = NII.load_bids(vert_org).reorient_to_(("P", "I", "R"))
-        arr_org = vert_nii_iso.get_seg_array()
+    except Exception:
+        return
+    # vert_nii.rescale_nib_((1, 1, 1), verbose=True)
+    vert_nii_iso = None
+    arr_org = None
+    for id, center in cdt_iso.items():
+        train = random.random() < 0.9
+        p1 = Path(out_path, "train", str(id), ct.get("sub") + f"_{0:04}.npz")
+        p2 = Path(out_path, "val", str(id), ct.get("sub") + f"_{0:04}.npz")
+        if p1.exists() or p2.exists():
+            print("[ ] SKIP", skip_counter, "\t", family_counter, "/", len(l))
+            skip_counter += 1
+            continue
+        if vert_nii_iso is None:
+            vert_nii_iso = NII.load_bids(vert_org).rescale_and_reorient_(("P", "I", "R"), (1, 1, 1))
+            arr_org = vert_nii_iso.get_seg_array()
 
-        for id, center in cdt_iso.items():
-            train = random.random() < 0.1
-            p = Path(out_path, "train" if train else "val", str(id), ct.get("sub") + f"_{i:04}.npz")
-            if p.exists():
-                continue
-            vert_nii.seg = True
-            mask = np.equal(vert_nii.get_seg_array(), id).astype(np.uint8)
-            vert_nii.seg = False
-            mask = vert_nii.set_array(mask.astype(float), inplace=False).rescale_nib_((1, 1, 1), c_val=0).get_array()
+        p = p1 if train else p2
+        vert_nii.seg = True
+        mask = np.equal(vert_nii.get_seg_array(), id).astype(np.uint8)
+        vert_nii.seg = False
+        mask = vert_nii.set_array(mask.astype(float), inplace=False).rescale_nib_((1, 1, 1), c_val=0).get_array()
+        assert arr_org is not None
+        mask_org = np.equal(arr_org, id).astype(np.uint8)
+        size, center_pos = extract_vertebra.get_fg_size_and_position(mask.astype(np.uint8))
+        # max_size = np.maximum(size, max_size)
+        # avg_size += size
+        # count += 1
+        if np.any(size > bbox_size - 2):
+            raise ValueError(f"Vertebra type {id} in case {ct} is larger than " f"bbox - 2: {size} vs {bbox_size - 2}.")
+        cropped_vert = extract_vertebra.crop_and_pad(mask, center_pos, bbox_size)
+        cropped_vert_org = extract_vertebra.crop_and_pad(mask_org, center_pos, bbox_size)
+        p.parent.mkdir(exist_ok=True, parents=True)
+        # vert_nii_iso.seg = False
+        # vert_nii_iso.set_array(cropped_vert).save(str(p).replace(".npz", ".nii.gz"))
+        # vert_nii_iso.set_array(cropped_vert_org).save(str(p).replace(".npz", "_gt.nii.gz"))
+        # vert_nii_iso.seg = True
 
-            mask_org = np.equal(arr_org, id).astype(np.uint8)
-            size, center_pos = extract_vertebra.get_fg_size_and_position(mask.astype(np.uint8))
-            max_size = np.maximum(size, max_size)
-            avg_size += size
-            count += 1
-            if np.any(size > bbox_size - 2):
-                raise ValueError(f"Vertebra type {id} in case {ct} is larger than " f"bbox - 2: {size} vs {bbox_size - 2}.")
-            cropped_vert = extract_vertebra.crop_and_pad(mask, center_pos, bbox_size)
-            cropped_vert_org = extract_vertebra.crop_and_pad(mask_org, center_pos, bbox_size)
-            p.parent.mkdir(exist_ok=True, parents=True)
-            # vert_nii_iso.seg = False
-            # vert_nii_iso.set_array(cropped_vert).save(str(p).replace(".npz", ".nii.gz"))
-            # vert_nii_iso.set_array(cropped_vert_org).save(str(p).replace(".npz", "_gt.nii.gz"))
-            # vert_nii_iso.seg = True
-
-            np.savez_compressed(p, low_res=cropped_vert, high_res=cropped_vert_org)
-        # Make image per vertebra.
-        print(max_size, avg_size / count)
-        # shutil.rmtree(out_tmp_path)
+        np.savez_compressed(p, low_res=cropped_vert, high_res=cropped_vert_org)
+    # Make image per vertebra.
+    # print(max_size, avg_size / count)
+    # shutil.rmtree(out_tmp_path)
 
 
 if __name__ == "__main__":
     from joblib import Parallel, delayed
 
-    # generate(99, False)
     n_jobs = 10
     if n_jobs > 1:
         print("[*] Running {} parallel jobs. Note that stdout will not be sequential".format(n_jobs))
-    out = "/media/data/robert/datasets/CT_TRAINING2_org" if Path('/media/data/robert/datasets/CT_TRAINING2_org').exists() else "/media/data/robert/datasets/verse19/":
-    Parallel(n_jobs=n_jobs)(delayed(generate)(i,out) for i in roots.keys())
+    out = (
+        "/media/data/robert/datasets/CT_TRAINING2_org"
+        if Path("/media/data/robert/datasets/CT_TRAINING2_org").exists()
+        else "/media/data/robert/datasets/verse19/"
+    )
+
+    # generate(4, out)
+    Parallel(n_jobs=n_jobs)(delayed(generate)(i, out) for i in roots.keys())

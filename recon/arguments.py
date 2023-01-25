@@ -152,7 +152,9 @@ class ReconNetTraining_Option(Option_to_Dataclass):
     train_folder_name: str = "train"
     val_folder_name: str = "val"
     test_folder_name: str = "test"
-    data_basedir: str = "/media/data/robert/datasets/verse19/docker_ds/"  # "my_models"
+    data_basedir: str = (
+        "/media/data/robert/datasets/CT_TRAINING2_org/docker_ds2"  # "/media/data/robert/datasets/verse19/docker_ds/"  # "my_models"
+    )
     new: bool = False
     ds_len = None
     labels: list[int] = field(default_factory=lambda: list(range(20, 36)))
