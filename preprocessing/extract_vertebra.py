@@ -327,7 +327,7 @@ def save_individual_vertebrae(
         if np.any(vertebra_size > bbox_size - 2):
             print(position)
             raise ValueError(
-                f"Vertebra type {vrtbr_type} in case {casename} is larger than " f"bbox - 2: {vertebra_size} vs {bbox_size - 2}."
+                f"Vertebra type {vrtbr_type} in case {casename} is larger than " + f"bbox - 2: {vertebra_size} vs {bbox_size - 2}."
             )
         crop_lbl = crop_and_pad(labels_binary, position, bbox_size)
         out_file = target_labels_dir / f"{casename}_{vrtbr_type:02d}.nii.gz"

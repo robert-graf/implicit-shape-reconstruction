@@ -199,7 +199,7 @@ def main(opt: arguments.ReconNetTraining_Option, limit_train_batches=1.0):
         resume_from_checkpoint=last_checkpoint,
         detect_anomaly=opt.prevent_nan,
     )
-    trainer.tune(model)
+    # trainer.tune(model)
     trainer.fit(
         model,
         train_loader,
@@ -216,5 +216,9 @@ def get_opt(parser: None | ArgumentParser = None, config=None) -> arguments.Reco
 
 if __name__ == "__main__":
     # opt = get_opt()
-    opt = arguments.ReconNetTraining_Option()
+    # LWH
+    # opt = arguments.ReconNetTraining_Option()
+    # ALL
+    opt = arguments.ReconNetTraining_Option(model_name="recon_net_all", labels=list(range(1, 100)), batch_size_train=10, batch_size_val=10)
+
     main(opt)
